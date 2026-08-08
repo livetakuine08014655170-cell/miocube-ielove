@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mioCube → いえらぶ コピペ支援 v19</title>
+<title>mioCube → いえらぶ コピペ支援 v21</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#222;--muted:#6b7280;--gold:#b59b53;--blue:#2563eb;--line:#d8dee8;--ok:#eefaf1}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Yu Gothic",Meiryo,sans-serif}
@@ -23,7 +23,7 @@ details{margin-top:12px}pre{white-space:pre-wrap;background:#101827;color:#e8eef
 </style>
 </head>
 <body>
-<header><h1>mioCube → いえらぶ コピペ支援 v19</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
+<header><h1>mioCube → いえらぶ コピペ支援 v21</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
 <main>
 <section class="card">
 <div id="drop" class="drop"><strong>mioCube台帳PDFをドロップ</strong><small>またはクリックして選択</small><input id="file" type="file" accept="application/pdf"></div>
@@ -389,6 +389,20 @@ function parse(){
  }
 
  r.parking_deposit='MIO参照';
+ // 最寄駅：ラベル「最寄駅」ではなく、実際の路線＋駅名の文字列を優先
+ const page1Tokens=(window.__pageTokens&&window.__pageTokens[0])||tokens;
+ let traffic='';
+ // まず「阪急宝塚線 山本駅」のように1トークン内に路線と駅があるケース
+ const combo=page1Tokens.find(x=>/線/.test(x) && /駅/.test(x) && c(x)!=='最寄駅');
+ if(combo){
+   traffic=clean(combo);
+ }else{
+   // 分割されている場合は「○○線」と「○○駅」を別々に探して結合
+   const rail=page1Tokens.find(x=>/線$/.test(clean(x)) && c(x)!=='最寄駅')||'';
+   const station=page1Tokens.find(x=>/駅$/.test(clean(x)) && c(x)!=='最寄駅')||'';
+   traffic=clean([rail,station].filter(Boolean).join(' '));
+ }
+ r.traffic_station=traffic;
  return r;
 }
 function field(label,key,wide=false){
@@ -410,7 +424,7 @@ function render(){
  ['保証会社','guarantee_company'],['保証会社利用料','guarantee_fee'],['保険料','insurance'],['水道料','water_fee'],['町会費','association_fee'],['鍵交換代','key_fee'],
  ['賃料備考','rent_notes',1],['設備備考','equipment_notes',1],['裏面コメント','back_comment',1]
  ]));
- out.appendChild(group('④ 交通',[['沿線','railway'],['最寄駅','station']]));
+ out.appendChild(group('④ 交通',[['最寄駅','traffic_station']]));
  out.appendChild(group('⑤ 建物・部屋情報',[['構造','structure'],['面積','area'],['建物階数','total_floors'],['築年月日','built_date'],['駐車場','parking'],['駐車場保証金','parking_deposit'],['駐車場月額','parking_fee'],['所在階','floor'],['向き','direction'],['間取り','layout'],['角部屋','corner_room']]));
  const eg=document.createElement('div');eg.className='group';eg.innerHTML='<h2>⑥ 設備・追加情報</h2>';
  equipGroups.forEach(([name,list])=>{const h=document.createElement('div');h.className='sub';h.textContent=name;eg.appendChild(h);const cs=document.createElement('div');cs.className='chips';list.forEach(n=>{const v=eq(n),b=document.createElement('button');b.className='chip '+(v?'':'off');b.textContent=v&&v!==n?`${n}：${v}`:n;b.disabled=!v;b.onclick=()=>copy(v);cs.appendChild(b)});eg.appendChild(cs)});
