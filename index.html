@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mioCube → いえらぶ コピペ支援 v21</title>
+<title>mioCube → いえらぶ コピペ支援 v23</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#222;--muted:#6b7280;--gold:#b59b53;--blue:#2563eb;--line:#d8dee8;--ok:#eefaf1}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Yu Gothic",Meiryo,sans-serif}
@@ -17,13 +17,17 @@ main{max-width:1180px;margin:18px auto;padding:0 14px 40px}.card{background:#fff
 .field textarea{min-height:74px;resize:vertical}.wide{grid-column:span 3}.copy{padding:4px 8px;border:0;border-radius:6px;background:var(--blue);color:#fff;font-size:11px;cursor:pointer}.copy:disabled{opacity:.35}
 .chips{display:flex;flex-wrap:wrap;gap:7px}.chip{border:1px solid #cdd8ec;background:#edf3ff;border-radius:999px;padding:7px 10px;font-size:13px;cursor:pointer}.chip.off{opacity:.28;background:#f5f5f5}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.btn{border:0;border-radius:7px;padding:10px 14px;font-weight:bold;cursor:pointer}.primary{background:var(--blue);color:#fff}.light{background:#e9edf3;color:#374151}
-.note{font-size:12px;color:var(--muted);line-height:1.6}.toast{position:fixed;right:18px;bottom:18px;background:#1f2937;color:#fff;padding:9px 13px;border-radius:8px;display:none}
+.note{font-size:12px;color:var(--muted);line-height:1.6}.toast{
+position:fixed;left:50%;bottom:28px;transform:translateX(-50%);
+background:#1f2937;color:#fff;padding:11px 18px;border-radius:9px;
+display:none;z-index:99999;font-weight:bold;box-shadow:0 4px 14px rgba(0,0,0,.28)
+}
 details{margin-top:12px}pre{white-space:pre-wrap;background:#101827;color:#e8eef9;padding:10px;border-radius:7px;max-height:260px;overflow:auto;font-size:11px}
 @media(max-width:760px){.grid{grid-template-columns:1fr}.wide{grid-column:span 1}}
 </style>
 </head>
 <body>
-<header><h1>mioCube → いえらぶ コピペ支援 v21</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
+<header><h1>mioCube → いえらぶ コピペ支援 v23</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
 <main>
 <section class="card">
 <div id="drop" class="drop"><strong>mioCube台帳PDFをドロップ</strong><small>またはクリックして選択</small><input id="file" type="file" accept="application/pdf"></div>
@@ -47,7 +51,43 @@ const c=s=>clean(s).replace(/\s/g,'');
 const findExact=(arr,s,start=0)=>{const q=c(s);for(let i=start;i<arr.length;i++)if(c(arr[i])===q)return i;return -1};
 const valAfter=(arr,label,pred,limit=10)=>{let i=findExact(arr,label);if(i<0)return'';for(let j=i+1;j<Math.min(arr.length,i+1+limit);j++)if(pred(arr[j]))return clean(arr[j]);return''};
 const onlyNum=s=>clean(s).replace(/,/g,'').replace(/[^\d.]/g,'');
-const copy=t=>navigator.clipboard.writeText(String(t??'')).then(()=>{const z=$('toast');z.style.display='block';setTimeout(()=>z.style.display='none',800)});
+let toastTimer=null;
+function showCopied(btn){
+ const z=$('toast');
+ z.textContent='コピーしました';
+ z.style.display='block';
+ clearTimeout(toastTimer);
+ toastTimer=setTimeout(()=>z.style.display='none',1100);
+ if(btn){
+   const old=btn.textContent;
+   btn.textContent='コピー済み ✓';
+   btn.disabled=true;
+   setTimeout(()=>{btn.textContent=old;btn.disabled=false},900);
+ }
+}
+async function copy(t,btn){
+ const text=String(t??'');
+ if(!text)return;
+ try{
+   await navigator.clipboard.writeText(text);
+   showCopied(btn);
+ }catch(e){
+   // Clipboard APIが使えない環境用のフォールバック
+   const ta=document.createElement('textarea');
+   ta.value=text;
+   ta.style.position='fixed';
+   ta.style.left='-9999px';
+   document.body.appendChild(ta);
+   ta.focus();
+   ta.select();
+   try{
+     document.execCommand('copy');
+     showCopied(btn);
+   }finally{
+     document.body.removeChild(ta);
+   }
+ }
+}
 const man=v=>{const n=Number(onlyNum(v));return n?String(n/10000).replace(/\.0+$/,''):''};
 
 const equipGroups=[
@@ -408,7 +448,7 @@ function parse(){
 function field(label,key,wide=false){
  const v=data[key]||'',d=document.createElement('div');d.className='field '+(v?'filled ':'')+(wide?'wide':'');
  d.innerHTML=`<label><span>${label}</span><button class="copy" ${v?'':'disabled'}>コピー</button></label>${wide?'<textarea></textarea>':'<input>'}`;
- const inp=d.querySelector('input,textarea');inp.value=v;inp.oninput=e=>{data[key]=e.target.value;d.classList.toggle('filled',!!e.target.value);d.querySelector('button').disabled=!e.target.value};d.querySelector('button').onclick=()=>copy(inp.value);return d;
+ const inp=d.querySelector('input,textarea');inp.value=v;inp.oninput=e=>{data[key]=e.target.value;d.classList.toggle('filled',!!e.target.value);d.querySelector('button').disabled=!e.target.value};const copyBtn=d.querySelector('button');copyBtn.onclick=()=>copy(inp.value,copyBtn);return d;
 }
 function group(title,items){
  const g=document.createElement('div');g.className='group';g.innerHTML=`<h2>${title}</h2>`;let grid=document.createElement('div');grid.className='grid';
@@ -416,21 +456,27 @@ function group(title,items){
 }
 function render(){
  out.innerHTML='';
- out.appendChild(group('① 建物種別',[['建物種別','building_type'],['物件番号','property_no']]));
- out.appendChild(group('② コメント・備考',[['裏面コメント','back_comment',1]]));
- out.appendChild(group('③ 物件・契約情報',[
+ out.appendChild(group('① 基本情報',[
+ ['建物種別','building_type'],['物件番号','property_no'],['裏面コメント','back_comment',1]
+ ]));
+ out.appendChild(group('② 物件情報',[
  ['物件名','property_name'],['号室','room_no'],['住所','address'],['建物種別','building_type'],['現況','status'],
  ['賃料（万円）','rent'],['敷金','shikikin'],['保証金','deposit'],['礼金','reikin'],['共益費','management_fee'],['更新料','renewal_fee'],
  ['保証会社','guarantee_company'],['保証会社利用料','guarantee_fee'],['保険料','insurance'],['水道料','water_fee'],['町会費','association_fee'],['鍵交換代','key_fee'],
  ['賃料備考','rent_notes',1],['設備備考','equipment_notes',1],['裏面コメント','back_comment',1]
  ]));
- out.appendChild(group('④ 交通',[['最寄駅','traffic_station']]));
- out.appendChild(group('⑤ 建物・部屋情報',[['構造','structure'],['面積','area'],['建物階数','total_floors'],['築年月日','built_date'],['駐車場','parking'],['駐車場保証金','parking_deposit'],['駐車場月額','parking_fee'],['所在階','floor'],['向き','direction'],['間取り','layout'],['角部屋','corner_room']]));
- const eg=document.createElement('div');eg.className='group';eg.innerHTML='<h2>⑥ 設備・追加情報</h2>';
- equipGroups.forEach(([name,list])=>{const h=document.createElement('div');h.className='sub';h.textContent=name;eg.appendChild(h);const cs=document.createElement('div');cs.className='chips';list.forEach(n=>{const v=eq(n),b=document.createElement('button');b.className='chip '+(v?'':'off');b.textContent=v&&v!==n?`${n}：${v}`:n;b.disabled=!v;b.onclick=()=>copy(v);cs.appendChild(b)});eg.appendChild(cs)});
+ out.appendChild(group('③ 交通',[['最寄駅','traffic_station']]));
+ out.appendChild(group('④ 建物',[
+ ['構造','structure'],['面積','area'],['建物階数','total_floors'],['築年月日','built_date'],['駐車場','parking'],
+ ['駐車場保証金','parking_deposit'],['駐車場月額','parking_fee'],['所在階','floor'],['向き','direction'],['間取り','layout'],['角部屋','corner_room']
+ ]));
+ const eg=document.createElement('div');eg.className='group';eg.innerHTML='<h2>⑤ 設備</h2>';
+ equipGroups.forEach(([name,list])=>{const h=document.createElement('div');h.className='sub';h.textContent=name;eg.appendChild(h);const cs=document.createElement('div');cs.className='chips';list.forEach(n=>{const v=eq(n),b=document.createElement('button');b.className='chip '+(v?'':'off');b.textContent=v&&v!==n?`${n}：${v}`:n;b.disabled=!v;b.onclick=()=>copy(v,b);cs.appendChild(b)});eg.appendChild(cs)});
  const tail=document.createElement('div');tail.className='grid';tail.style.marginTop='15px';[['賃料備考','rent_notes'],['設備備考','equipment_notes'],['裏面コメント','back_comment']].forEach(x=>tail.appendChild(field(x[0],x[1],1)));eg.appendChild(tail);out.appendChild(eg);
- out.appendChild(group('一般媒介',[['一般媒介','mediation']]));
- out.appendChild(group('⑦ 元付情報',[['業者名','broker_name'],['担当者','broker_staff'],['所在地','broker_address'],['電話','broker_tel'],['FAX','broker_fax'],['メール','broker_email'],['備考','broker_notes',1]]));
+ out.appendChild(group('⑥ 取引情報',[
+ ['一般媒介','mediation'],['業者名','broker_name'],['担当者','broker_staff'],['所在地','broker_address'],
+ ['電話','broker_tel'],['FAX','broker_fax'],['メール','broker_email'],['備考','broker_notes',1]
+ ]));
  out.style.display='block';$('clear').disabled=false;
 }
 async function load(file){
