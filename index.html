@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mioCube → いえらぶ コピペ支援 v45</title>
+<title>mioCube → いえらぶ コピペ支援 v47</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#222;--muted:#6b7280;--gold:#b59b53;--blue:#2563eb;--line:#d8dee8;--ok:#eefaf1}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Yu Gothic",Meiryo,sans-serif}
@@ -45,7 +45,7 @@ details{margin-top:12px}pre{white-space:pre-wrap;background:#101827;color:#e8eef
 </style>
 </head>
 <body>
-<header><h1>mioCube → いえらぶ コピペ支援 v45</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
+<header><h1>mioCube → いえらぶ コピペ支援 v47</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
 <main>
 <section class="card">
 <div id="drop" class="drop"><strong>mioCube台帳PDFをドロップ</strong><small>またはクリックして選択</small><input id="file" type="file" accept="application/pdf"></div>
@@ -218,18 +218,33 @@ function parkingRowData(){
  let status='';
  const st=row.find(o=>/空有|空あり|近隣確保|空無|空なし/.test(clean(o.text)));
  if(st)status=clean(st.text).replace('空有','空あり');
- const nums=row.map(o=>clean(o.text)).filter(s=>/^[\d,]+(?:\.\d+)?$/.test(s)).map(onlyNum);
- return {status,deposit:nums[0]||'',monthly:nums[1]||''};
+ // 駐車場の金額は「何個あるか」ではなく位置で判定する。
+ // 保証金が空欄なら月額を保証金へ詰めない。
+ const numItems=row.filter(o=>/^[\d,]+(?:\.\d+)?$/.test(clean(o.text)));
+
+ let deposit='',monthly='';
+ if(numItems.length>=2){
+   deposit=onlyNum(numItems[0].text);
+   monthly=onlyNum(numItems[1].text);
+ }else if(numItems.length===1){
+   // 1個だけなら通常は月額。保証金欄が空欄でも左詰めしない。
+   monthly=onlyNum(numItems[0].text);
+ }
+ return {status,deposit,monthly};
 }
 function parkingOneLine(){
  const p=parkingRowData(),a=[];
  const pyen=v=>{
-   const n=Number(String(v||'').replace(/,/g,''));
-   return Number.isFinite(n)&&n!==0 ? n.toLocaleString('ja-JP')+'円' : '';
+   const s=String(v??'').replace(/,/g,'').trim();
+   if(!s)return '';
+   const n=Number(s);
+   return Number.isFinite(n) ? n.toLocaleString('ja-JP')+'円' : '';
  };
- if(p.status)a.push(p.status);
- if(p.deposit)a.push('保証金：'+pyen(p.deposit));
- if(p.monthly)a.push('月額：'+pyen(p.monthly));
+ if(p.status) a.push(p.status);
+ const dep=pyen(p.deposit);
+ const mon=pyen(p.monthly);
+ if(dep) a.push('保証金：'+dep);
+ if(mon) a.push('月額：'+mon);
  return a.join(' ｜ ');
 }
 
