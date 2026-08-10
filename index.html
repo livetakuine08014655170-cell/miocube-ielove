@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mioCube → いえらぶ コピペ支援 v42</title>
+<title>mioCube → いえらぶ コピペ支援 v45</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#222;--muted:#6b7280;--gold:#b59b53;--blue:#2563eb;--line:#d8dee8;--ok:#eefaf1}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Yu Gothic",Meiryo,sans-serif}
@@ -45,7 +45,7 @@ details{margin-top:12px}pre{white-space:pre-wrap;background:#101827;color:#e8eef
 </style>
 </head>
 <body>
-<header><h1>mioCube → いえらぶ コピペ支援 v42</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
+<header><h1>mioCube → いえらぶ コピペ支援 v45</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
 <main>
 <section class="card">
 <div id="drop" class="drop"><strong>mioCube台帳PDFをドロップ</strong><small>またはクリックして選択</small><input id="file" type="file" accept="application/pdf"></div>
@@ -232,6 +232,47 @@ function parkingOneLine(){
  if(p.monthly)a.push('月額：'+pyen(p.monthly));
  return a.join(' ｜ ');
 }
+
+function guaranteeTwoRows(){
+ const page1=(window.__pageTokens&&window.__pageTokens[0])||[];
+ let idx=page1.findIndex(x=>clean(x).includes('利用必須'));
+ if(idx<0)return {company:'',fee:''};
+
+ let company='';
+ let fee='';
+
+ const first=clean(page1[idx]);
+ const stripped=clean(first.replace(/利用必須/g,''));
+
+ // 上段：利用必須と会社名が同じトークンなら、その残りが会社名
+ if(stripped){
+   company=stripped;
+ }else{
+   // 「利用必須」だけで分かれている場合は、その次の文字列を会社名
+   for(let i=idx+1;i<Math.min(page1.length,idx+5);i++){
+     const s=clean(page1[i]);
+     if(!s)continue;
+     if(s==='円'||s==='年'||/^[\d,]+$/.test(s))continue;
+     company=s;
+     idx=i;
+     break;
+   }
+ }
+
+ // 下段：会社名の次にある説明文を保証料として取得
+ for(let i=idx+1;i<Math.min(page1.length,idx+8);i++){
+   const s=clean(page1[i]);
+   if(!s)continue;
+   if(s==='交'||s==='通'||s==='所在地'||s==='最寄駅')break;
+   if(s==='円'||s==='年'||/^[\d,]+$/.test(s))continue;
+   if(company && s===company)continue;
+   fee=s;
+   break;
+ }
+
+ return {company,fee};
+}
+
 function parse(){
  const t=tokens, flat=t.join('\n'), r={};
  r.property_no=(t.find(x=>/^10\d{8}$/.test(x))||'');
@@ -527,6 +568,10 @@ function parse(){
  }
  r.traffic_station=traffic;
  if(r.built_date) r.built_date=seirekiDate(r.built_date);
+ const g2=guaranteeTwoRows();
+ if(g2.company) r.guarantee_company=g2.company;
+ if(g2.fee) r.guarantee_fee=g2.fee;
+
  const ps=parkingRowData();
  r.parking=ps.status;
  r.parking_deposit=ps.deposit;
