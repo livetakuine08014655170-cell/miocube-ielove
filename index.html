@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mioCube → いえらぶ コピペ支援 v23</title>
+<title>mioCube → いえらぶ コピペ支援 v53</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#222;--muted:#6b7280;--gold:#b59b53;--blue:#2563eb;--line:#d8dee8;--ok:#eefaf1}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Yu Gothic",Meiryo,sans-serif}
@@ -24,10 +24,28 @@ display:none;z-index:99999;font-weight:bold;box-shadow:0 4px 14px rgba(0,0,0,.28
 }
 details{margin-top:12px}pre{white-space:pre-wrap;background:#101827;color:#e8eef9;padding:10px;border-radius:7px;max-height:260px;overflow:auto;font-size:11px}
 @media(max-width:760px){.grid{grid-template-columns:1fr}.wide{grid-column:span 1}}
+
+/* v41: 設備以外は「1項目＝1行」
+   例：物件名 / 号室 / 住所 をそれぞれ横幅いっぱいの別行にする */
+.group:not(.equipment-group) .fields{
+  grid-template-columns:1fr !important;
+}
+.group:not(.equipment-group) .field{
+  grid-column:1 / -1 !important;
+  width:100% !important;
+}
+
+
+.field input[readonly], .field textarea[readonly]{
+ background:#f8fafc;
+ color:#222;
+ cursor:default;
+}
+
 </style>
 </head>
 <body>
-<header><h1>mioCube → いえらぶ コピペ支援 v23</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
+<header><h1>mioCube → いえらぶ コピペ支援 v53</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
 <main>
 <section class="card">
 <div id="drop" class="drop"><strong>mioCube台帳PDFをドロップ</strong><small>またはクリックして選択</small><input id="file" type="file" accept="application/pdf"></div>
@@ -99,7 +117,7 @@ const equipGroups=[
 ["設備⑥",["BS","CS","CATV","インターネット無料"]],
 ["設備⑦",["免震構造","デザイナーズ","バリアフリー","分譲賃貸"]],
 ["設備⑧",["向き"]],
-["設備⑨",["駐輪場","バイク置き場","駐車場月額"]],
+["設備⑨",["駐輪場","バイク置き場","駐車場"]],
 ["設備⑩",["専用庭"]],
 ["設備⑪",["システムキッチン","カウンターキッチン","食洗器","ディスポーザー"]],
 ["設備⑫",["バス・トイレ別","バス・トイレ同室","バストイレ別室","洗面所独立","追い焚き","浴室乾燥","シャワー","温水洗浄便座"]],
@@ -119,11 +137,222 @@ const alias={
 };
 function eq(name){
  if(name==="向き") return data.direction||"";
- if(name==="駐車場月額") return data.parking_fee||"";
+ if(name==="駐車場") return data.parking_line||"";
  if(name==="建物階数") return data.total_floors||"";
  if(name==="所在階") return data.floor||"";
  return (alias[name]||[name]).some(a=>compactAll.includes(c(a))) ? name : "";
 }
+function seirekiDate(x){
+ const t=clean(x);
+ const m=t.match(/(明治|大正|昭和|平成|令和)\s*(\d+|元)\s*年\s*(\d{1,2})?\s*月?/);
+ if(!m)return t;
+ const y=m[2]==='元'?1:Number(m[2]);
+ const base={明治:1867,大正:1911,昭和:1925,平成:1988,令和:2018}[m[1]];
+ const gy=base+y;
+ return m[3]?`${gy}年${Number(m[3])}月`:`${gy}年`;
+}
+
+function conditionLabelBox(label){
+ const items=(window.__visualItems&&window.__visualItems[0])||[];
+ const exact=items.find(o=>c(o.text)===c(label));
+ if(exact) return {x:exact.x,y:exact.y,w:exact.w||0};
+
+ const rows=[];
+ for(const it of items){
+   let row=rows.find(r=>Math.abs(r.y-it.y)<=3);
+   if(!row){row={y:it.y,items:[]};rows.push(row);}
+   row.items.push(it);
+ }
+ for(const row of rows){
+   const a=row.items.slice().sort((p,q)=>p.x-q.x);
+   for(let i=0;i<a.length;i++){
+     let joined='', endX=a[i].x+(a[i].w||0);
+     for(let j=i;j<Math.min(a.length,i+5);j++){
+       if(j>i && a[j].x-endX>24) break;
+       joined+=c(a[j].text);
+       endX=a[j].x+(a[j].w||0);
+       if(joined===c(label)) return {x:a[i].x,y:row.y,w:endX-a[i].x};
+       if(joined.length>c(label).length) break;
+     }
+   }
+ }
+ return null;
+}
+
+function conditionValue(label){
+ const items=(window.__visualItems&&window.__visualItems[0])||[];
+ const lab=conditionLabelBox(label);
+ if(!lab)return '';
+ const rightEdge=lab.x+lab.w;
+ const nums=items.filter(o=>{
+   const s=clean(o.text);
+   return /^[\d,]+(?:\.\d+)?$/.test(s) &&
+          Math.abs(o.y-lab.y)<=5 &&
+          o.x>rightEdge+4 &&
+          o.x-rightEdge<=130;
+ }).sort((a,b)=>a.x-b.x);
+ return nums.length?onlyNum(nums[0].text):'';
+}
+
+function applyConditionValues(r){
+ const rent=conditionValue('賃料');
+ if(rent!=='') r.rent=man(rent);
+ r.deposit=conditionValue('保証金');
+ r.shikikin=conditionValue('敷金');
+ r.water_fee=conditionValue('水道料');
+ r.insurance=conditionValue('保険料');
+ r.management_fee=conditionValue('共益費');
+ r.reikin=conditionValue('礼金');
+ r.association_fee=conditionValue('町会費');
+ r.key_fee=conditionValue('鍵交換代');
+ r.renewal_fee=conditionValue('更新料');
+}
+
+// v53: 賃料備考は「備考」セルを座標で直接読む。
+// 金額欄と違い複数行になるため、同じセル内の文字を上→下、左→右で連結する。
+function rentNoteByPosition(){
+ const t=(window.__pageTokens&&window.__pageTokens[0])||[];
+ const norm=x=>c(clean(x));
+
+ // v53
+ // ① テストマンション型：
+ // 実際の入力値として「賃料備考」という文字が独立して出る場合はそのまま採用。
+ const exact=t.find(x=>norm(x)==='賃料備考');
+ if(exact) return clean(exact);
+
+ // ② AILE小林型：
+ // 賃料備考本文がPDF内部で複数の文字列に分割される。
+ // 「利用必須...」の直前にある本文を、1個だけでなく連続する複数行まとめて復元する。
+ const req=t.findIndex(x=>norm(x).startsWith('利用必須'));
+ if(req>=0){
+   const parts=[];
+   for(let i=req-1;i>=0;i--){
+     const s=clean(t[i]), n=norm(s);
+     if(!s) continue;
+
+     // 契約条件の境界に来たら終了
+     if([
+       '保証会社','契約期間','保険料','水道料','敷金','保証金','賃料',
+       '解約引','礼金','町会費','鍵交換代','更新料','共益費','備考'
+     ].includes(n)) break;
+
+     // 単位・金額だけのトークンは読み飛ばす。
+     // ただし本文中の「円/短期解約...」のような文章は残す。
+     if(['円','年','ヶ月','か月','ケ月','月'].includes(n)) continue;
+     if(/^[\d,]+(?:\.\d+)?$/.test(s)) continue;
+
+     // 本文らしい文字列だけ拾う
+     if(/[ぁ-んァ-ヶ一-龠A-Za-z]/.test(s)){
+       parts.unshift(s);
+       // AILEの備考は通常1～3トークン程度。
+       // 物件情報まで遡らないよう最大4個まで。
+       if(parts.length>=4) break;
+     }else if(parts.length){
+       // 本文を拾い始めた後に文章でない塊へ来たら終了
+       break;
+     }
+   }
+
+   if(parts.length){
+     return clean(parts.join(''));
+   }
+ }
+
+ // ③ 最終フォールバック：
+ // 条件欄の「備考」ラベルから交通欄までにある長文を拾う。
+ const b=t.findIndex(x=>norm(x)==='備考');
+ const tr=t.findIndex(x=>norm(x)==='交');
+ if(b>=0){
+   const e=tr>b?tr:t.length;
+   const vals=t.slice(b+1,e).map(clean).filter(Boolean)
+     .filter(s=>![ '円','年','ヶ月','か月','ケ月','月' ].includes(norm(s)))
+     .filter(s=>!/^[\d,]+(?:\.\d+)?$/.test(s))
+     .filter(s=>/[ぁ-んァ-ヶ一-龠A-Za-z]/.test(s));
+   if(vals.length) return clean(vals.join(''));
+ }
+
+ return '';
+}
+
+function parkingRowData(){
+ const items=(window.__visualItems&&window.__visualItems[0])||[];
+ const lab=conditionLabelBox('駐車場');
+ if(!lab)return {status:'',deposit:'',monthly:''};
+ const rightEdge=lab.x+lab.w;
+ const row=items.filter(o=>Math.abs(o.y-lab.y)<=6 && o.x>rightEdge+4 && o.x-rightEdge<=260).sort((a,b)=>a.x-b.x);
+ let status='';
+ const st=row.find(o=>/空有|空あり|近隣確保|空無|空なし/.test(clean(o.text)));
+ if(st)status=clean(st.text).replace('空有','空あり');
+ // 駐車場の金額は「何個あるか」ではなく位置で判定する。
+ // 保証金が空欄なら月額を保証金へ詰めない。
+ const numItems=row.filter(o=>/^[\d,]+(?:\.\d+)?$/.test(clean(o.text)));
+
+ let deposit='',monthly='';
+ if(numItems.length>=2){
+   deposit=onlyNum(numItems[0].text);
+   monthly=onlyNum(numItems[1].text);
+ }else if(numItems.length===1){
+   // 1個だけなら通常は月額。保証金欄が空欄でも左詰めしない。
+   monthly=onlyNum(numItems[0].text);
+ }
+ return {status,deposit,monthly};
+}
+function parkingOneLine(){
+ const p=parkingRowData(),a=[];
+ const pyen=v=>{
+   const s=String(v??'').replace(/,/g,'').trim();
+   if(!s)return '';
+   const n=Number(s);
+   return Number.isFinite(n) ? n.toLocaleString('ja-JP')+'円' : '';
+ };
+ if(p.status) a.push(p.status);
+ const dep=pyen(p.deposit);
+ const mon=pyen(p.monthly);
+ if(dep) a.push('保証金：'+dep);
+ if(mon) a.push('月額：'+mon);
+ return a.join(' ｜ ');
+}
+
+function guaranteeTwoRows(){
+ const page1=(window.__pageTokens&&window.__pageTokens[0])||[];
+ let idx=page1.findIndex(x=>clean(x).includes('利用必須'));
+ if(idx<0)return {company:'',fee:''};
+
+ let company='';
+ let fee='';
+
+ const first=clean(page1[idx]);
+ const stripped=clean(first.replace(/利用必須/g,''));
+
+ // 上段：利用必須と会社名が同じトークンなら、その残りが会社名
+ if(stripped){
+   company=stripped;
+ }else{
+   // 「利用必須」だけで分かれている場合は、その次の文字列を会社名
+   for(let i=idx+1;i<Math.min(page1.length,idx+5);i++){
+     const s=clean(page1[i]);
+     if(!s)continue;
+     if(s==='円'||s==='年'||/^[\d,]+$/.test(s))continue;
+     company=s;
+     idx=i;
+     break;
+   }
+ }
+
+ // 下段：会社名の次にある説明文を保証料として取得
+ for(let i=idx+1;i<Math.min(page1.length,idx+8);i++){
+   const s=clean(page1[i]);
+   if(!s)continue;
+   if(s==='交'||s==='通'||s==='所在地'||s==='最寄駅')break;
+   if(s==='円'||s==='年'||/^[\d,]+$/.test(s))continue;
+   if(company && s===company)continue;
+   fee=s;
+   break;
+ }
+
+ return {company,fee};
+}
+
 function parse(){
  const t=tokens, flat=t.join('\n'), r={};
  r.property_no=(t.find(x=>/^10\d{8}$/.test(x))||'');
@@ -136,26 +365,17 @@ function parse(){
  let si=t.indexOf(r.structure);if(si>=0)r.total_floors=t.slice(si+1,si+6).find(x=>/^\d+$/.test(x))||'';
  let era=t.find(x=>['明治','大正','昭和','平成','令和'].includes(x));if(era){let i=t.indexOf(era),ns=t.slice(i+1,i+8).filter(x=>/^\d+$/.test(x));if(ns.length>=2)r.built_date=`${era}${ns[0]}年${ns[1]}月`}
 
- // 契約条件：フル入力テスト＋実データ（空欄多数）の両方に対応
+ // ===== 契約条件：見た目のラベル右隣から直接取得 =====
+ applyConditionValues(r);
+
+ // v53: 賃料備考も座標から直接取得。取れない場合だけ下の旧ロジックへフォールバック。
+ r.rent_notes=rentNoteByPosition();
+
+ // 保証会社名・利用料、および賃料備考のフォールバック
  let g=findExact(t,'保証会社'), tr=findExact(t,'交',g+1);
  if(g>=0&&tr>g){
    const v=t.slice(g+1,tr);
-   const nums=v.map(x=>clean(x)).filter(x=>/^[\d,]+$/.test(x));
 
-   if(nums.length>=12){
-     // 全項目入りテストPDF
-     r.rent=man(nums[0]); r.deposit=onlyNum(nums[1]); r.shikikin=onlyNum(nums[3]); r.reikin=onlyNum(nums[4]);
-     r.management_fee=onlyNum(nums[5]); r.association_fee=onlyNum(nums[6]); r.insurance=onlyNum(nums[7]); r.water_fee=onlyNum(nums[8]);
-     r.renewal_fee=onlyNum(nums[10]); r.key_fee=onlyNum(nums[11]);
-   }else if(nums.length>=4){
-     // 実データで空欄が多いケース
-     // 例: 111900 / 0 / 0 / 10000 → 賃料 / 保証金 / 敷金 / 共益費
-     r.rent=man(nums[0]); r.deposit=onlyNum(nums[1]); r.shikikin=onlyNum(nums[2]); r.management_fee=onlyNum(nums[3]);
-   }else if(nums.length){
-     r.rent=man(nums[0]);
-   }
-
-   // 賃料備考：金額群の後～保証会社情報の前までの説明文を連結
    const stopWords=['利用必須','利用料'];
    const textVals=v.filter(x=>!/^[\d,]+$/.test(clean(x)) && clean(x)!=='円' && clean(x)!=='年');
    const rentParts=[];
@@ -163,38 +383,24 @@ function parse(){
      if(stopWords.includes(c(x)) || x.includes('保証会社')) break;
      if(!['賃料備考'].includes(c(x)) && !/^\d+$/.test(x)) rentParts.push(x);
    }
-   if(rentParts.length){
-     const cleanedParts=rentParts
-       .map(x=>clean(x))
+   if(!r.rent_notes && rentParts.length){
+     const cleanedParts=rentParts.map(x=>clean(x))
        .filter(x=>x && !/^(ヶ月|か月|ケ月|月|円|年)$/.test(x))
-       .filter(x=>!/^[\d.]+\s*(ヶ月|か月|ケ月)$/.test(x));
+       .filter(x=>!/[\d.]+\s*(ヶ月|か月|ケ月)$/.test(x));
      r.rent_notes=clean(cleanedParts.join(' '));
    }
 
-   // 保証会社名・利用料
-   const requiredIdx=v.findIndex(x=>c(x)==='利用必須');
+   const requiredIdx=v.findIndex(x=>c(x)==='利用必須' || c(x).includes('利用必須'));
    if(requiredIdx>=0){
-     const before=v.slice(0,requiredIdx).map(clean).filter(Boolean);
-
-     // 「利用必須」より前にある保証会社名を取得。
-     // 「保証会社によって保証料が変わります」等の利用料説明は会社名にしない。
-     const companyCandidates=before.filter(x=>
-       !/^[\d,]+$/.test(x) &&
-       c(x)!=='円' &&
-       c(x)!=='保証会社' &&
-       c(x)!=='利用料' &&
+     const companyCandidates=v.slice(0,requiredIdx+1).map(clean).filter(x=>
+       x && !/^[\d,]+$/.test(x) && c(x)!=='円' && c(x)!=='保証会社' && c(x)!=='利用料' &&
        !/保証料|月額保証|初回保証|変わります/.test(x) &&
        /アプラス|全保連|オリコ|ジェイリース|オセロ|日本セーフティ|保証会社名|保証会社/.test(x)
      );
-     if(companyCandidates.length) r.guarantee_company=clean(companyCandidates[companyCandidates.length-1]);
+     if(companyCandidates.length) r.guarantee_company=clean(companyCandidates[companyCandidates.length-1].replace(/\s*利用必須\s*/g,' ').trim());
 
-     // 利用料・保証料説明は別欄
-     const feeCandidates=before.filter(x=>/保証料|月額保証|初回保証|変わります|利用料/.test(x));
+     const feeCandidates=v.filter(x=>/保証料|月額保証|初回保証|変わります|利用料/.test(x));
      if(feeCandidates.length) r.guarantee_fee=clean(feeCandidates[feeCandidates.length-1]);
-     if(!r.guarantee_fee){
-       const feeAfter=v.slice(requiredIdx+1).find(x=>/保証料|利用料|月額|初回/.test(x));
-       if(feeAfter) r.guarantee_fee=clean(feeAfter);
-     }
    }else{
      const company=v.find(x=>
        /アプラス|全保連|オリコ|ジェイリース|オセロ|日本セーフティ|保証会社名/.test(x) &&
@@ -205,6 +411,7 @@ function parse(){
      if(fee) r.guarantee_fee=clean(fee);
    }
  }
+
  // 交通
  let ai=findExact(t,'所在地');
  if(ai>=0){
@@ -443,15 +650,30 @@ function parse(){
    traffic=clean([rail,station].filter(Boolean).join(' '));
  }
  r.traffic_station=traffic;
+ if(r.built_date) r.built_date=seirekiDate(r.built_date);
+ const g2=guaranteeTwoRows();
+ if(g2.company) r.guarantee_company=g2.company;
+ if(g2.fee) r.guarantee_fee=g2.fee;
+
+ const ps=parkingRowData();
+ r.parking=ps.status;
+ r.parking_deposit=ps.deposit;
+ r.parking_fee=ps.monthly;
+ r.parking_line=parkingOneLine();
  return r;
 }
 function field(label,key,wide=false){
  const v=data[key]||'',d=document.createElement('div');d.className='field '+(v?'filled ':'')+(wide?'wide':'');
  d.innerHTML=`<label><span>${label}</span><button class="copy" ${v?'':'disabled'}>コピー</button></label>${wide?'<textarea></textarea>':'<input>'}`;
- const inp=d.querySelector('input,textarea');inp.value=v;inp.oninput=e=>{data[key]=e.target.value;d.classList.toggle('filled',!!e.target.value);d.querySelector('button').disabled=!e.target.value};const copyBtn=d.querySelector('button');copyBtn.onclick=()=>copy(inp.value,copyBtn);return d;
+ const inp=d.querySelector('input,textarea');
+ inp.value=v;
+ inp.readOnly=true;
+ const copyBtn=d.querySelector('button');
+ copyBtn.onclick=()=>copy(inp.value,copyBtn);
+ return d;
 }
 function group(title,items){
- const g=document.createElement('div');g.className='group';g.innerHTML=`<h2>${title}</h2>`;let grid=document.createElement('div');grid.className='grid';
+ const g=document.createElement('div');g.className="group"+(String(title).startsWith("設備")?" equipment-group":"");g.innerHTML=`<h2>${title}</h2>`;let grid=document.createElement('div');grid.className='grid';
  items.forEach(([l,k,w])=>grid.appendChild(field(l,k,!!w)));g.appendChild(grid);return g;
 }
 function render(){
@@ -467,8 +689,8 @@ function render(){
  ]));
  out.appendChild(group('③ 交通',[['最寄駅','traffic_station']]));
  out.appendChild(group('④ 建物',[
- ['構造','structure'],['面積','area'],['建物階数','total_floors'],['築年月日','built_date'],['駐車場','parking'],
- ['駐車場保証金','parking_deposit'],['駐車場月額','parking_fee'],['所在階','floor'],['向き','direction'],['間取り','layout'],['角部屋','corner_room']
+ ['構造','structure'],['面積','area'],['建物階数','total_floors'],['築年月日','built_date'],['駐車場','parking_line'],
+ ['所在階','floor'],['向き','direction'],['間取り','layout'],['角部屋','corner_room']
  ]));
  const eg=document.createElement('div');eg.className='group';eg.innerHTML='<h2>⑤ 設備</h2>';
  equipGroups.forEach(([name,list])=>{const h=document.createElement('div');h.className='sub';h.textContent=name;eg.appendChild(h);const cs=document.createElement('div');cs.className='chips';list.forEach(n=>{const v=eq(n),b=document.createElement('button');b.className='chip '+(v?'':'off');b.textContent=v&&v!==n?`${n}：${v}`:n;b.disabled=!v;b.onclick=()=>copy(v,b);cs.appendChild(b)});eg.appendChild(cs)});
@@ -481,11 +703,17 @@ function render(){
 }
 async function load(file){
  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
- tokens=[]; let ptxt=[]; window.__pageTokens=[];
+ tokens=[]; let ptxt=[]; window.__pageTokens=[]; window.__visualItems=[];
  for(let p=1;p<=pdf.numPages;p++){
    const page=await pdf.getPage(p),tc=await page.getTextContent();
-   const a=tc.items.map(i=>clean(i.str)).filter(Boolean);
+   const viewport=page.getViewport({scale:1});
+   const visual=tc.items.map(i=>{
+     const m=pdfjsLib.Util.transform(viewport.transform,i.transform);
+     return {text:clean(i.str),x:Number(m[4]||0),y:Number(m[5]||0),w:Number(i.width||0)};
+   }).filter(i=>i.text);
+   const a=visual.map(i=>i.text);
    window.__pageTokens.push(a);
+   window.__visualItems.push(visual);
    if(p>1)tokens.push('__PAGEBREAK__');
    tokens.push(...a);
    ptxt.push(`【PAGE ${p}】\n`+a.join('\n'));
