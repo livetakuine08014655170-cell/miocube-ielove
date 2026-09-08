@@ -211,66 +211,33 @@ function applyConditionValues(r){
 // v53: 賃料備考は「備考」セルを座標で直接読む。
 // 金額欄と違い複数行になるため、同じセル内の文字を上→下、左→右で連結する。
 function rentNoteByPosition(){
- const t=(window.__pageTokens&&window.__pageTokens[0])||[];
- const norm=x=>c(clean(x));
+ const items=(window.__pageItems&&window.__pageItems[0])||[];
+ if(!items.length)return '';
 
- // v53
- // ① テストマンション型：
- // 実際の入力値として「賃料備考」という文字が独立して出る場合はそのまま採用。
- const exact=t.find(x=>norm(x)==='賃料備考');
- if(exact) return clean(exact);
+ const norm=v=>c(clean(v.str||v));
+ const labels=items.filter(it=>norm(it)==='備考');
+ if(!labels.length)return '';
 
- // ② AILE小林型：
- // 賃料備考本文がPDF内部で複数の文字列に分割される。
- // 「利用必須...」の直前にある本文を、1個だけでなく連続する複数行まとめて復元する。
- const req=t.findIndex(x=>norm(x).startsWith('利用必須'));
- if(req>=0){
-   const parts=[];
-   for(let i=req-1;i>=0;i--){
-     const s=clean(t[i]), n=norm(s);
-     if(!s) continue;
+ // 条件欄の備考はページ上部側。候補ごとに右側の同一行を集め、
+ // 「利用必須」や保証会社行は絶対に含めない。
+ for(const lab of labels){
+   const y=Number(lab.y||0);
+   const x=Number(lab.x||0);
+   const same=items
+     .filter(it=>Math.abs(Number(it.y||0)-y)<=7 && Number(it.x||0)>x+5)
+     .sort((p,q)=>Number(p.x||0)-Number(q.x||0))
+     .map(it=>clean(it.str))
+     .filter(Boolean);
 
-     // 契約条件の境界に来たら終了
-     if([
-       '保証会社','契約期間','保険料','水道料','敷金','保証金','賃料',
-       '解約引','礼金','町会費','鍵交換代','更新料','共益費','備考'
-     ].includes(n)) break;
-
-     // 単位・金額だけのトークンは読み飛ばす。
-     // ただし本文中の「円/短期解約...」のような文章は残す。
-     if(['円','年','ヶ月','か月','ケ月','月'].includes(n)) continue;
-     if(/^[\d,]+(?:\.\d+)?$/.test(s)) continue;
-
-     // 本文らしい文字列だけ拾う
-     if(/[ぁ-んァ-ヶ一-龠A-Za-z]/.test(s)){
-       parts.unshift(s);
-       // AILEの備考は通常1～3トークン程度。
-       // 物件情報まで遡らないよう最大4個まで。
-       if(parts.length>=4) break;
-     }else if(parts.length){
-       // 本文を拾い始めた後に文章でない塊へ来たら終了
-       break;
-     }
+   const vals=[];
+   for(const v of same){
+     if(c(v).includes('利用必須') || c(v)==='保証会社') break;
+     if(v==='円'||v==='年') continue;
+     vals.push(v);
    }
-
-   if(parts.length){
-     return clean(parts.join(''));
-   }
+   const out=clean(vals.join(' '));
+   if(out) return out;
  }
-
- // ③ 最終フォールバック：
- // 条件欄の「備考」ラベルから交通欄までにある長文を拾う。
- const b=t.findIndex(x=>norm(x)==='備考');
- const tr=t.findIndex(x=>norm(x)==='交');
- if(b>=0){
-   const e=tr>b?tr:t.length;
-   const vals=t.slice(b+1,e).map(clean).filter(Boolean)
-     .filter(s=>![ '円','年','ヶ月','か月','ケ月','月' ].includes(norm(s)))
-     .filter(s=>!/^[\d,]+(?:\.\d+)?$/.test(s))
-     .filter(s=>/[ぁ-んァ-ヶ一-龠A-Za-z]/.test(s));
-   if(vals.length) return clean(vals.join(''));
- }
-
  return '';
 }
 
@@ -443,33 +410,39 @@ function guaranteeTwoRows(){
  const first=clean(page1[idx]);
  const stripped=clean(first.replace(/利用必須/g,''));
 
- // 上段：利用必須と会社名が同じトークンなら、その残りが会社名
  if(stripped){
    company=stripped;
  }else{
-   // 「利用必須」だけで分かれている場合は、その次の文字列を会社名
    for(let i=idx+1;i<Math.min(page1.length,idx+5);i++){
-     const s=clean(page1[i]);
-     if(!s)continue;
-     if(s==='円'||s==='年'||/^[\d,]+$/.test(s))continue;
-     company=s;
+     const v=clean(page1[i]);
+     if(!v)continue;
+     if(v==='円'||v==='年'||/^[\d,]+$/.test(v))continue;
+     if(v==='交'||v==='通'||v==='所在地'||v==='最寄駅')break;
+     company=v;
      idx=i;
      break;
    }
  }
 
- // 下段：会社名の次にある説明文を保証料として取得
+ // 「金額記載あり」の保証料説明だけ採用。
+ // 賃料備考の「初回保証料家主負担」等を誤取得しない。
  for(let i=idx+1;i<Math.min(page1.length,idx+8);i++){
-   const s=clean(page1[i]);
-   if(!s)continue;
-   if(s==='交'||s==='通'||s==='所在地'||s==='最寄駅')break;
-   if(s==='円'||s==='年'||/^[\d,]+$/.test(s))continue;
-   if(company && s===company)continue;
-   fee=s;
-   break;
+   const v=clean(page1[i]);
+   if(!v)continue;
+   if(v==='交'||v==='通'||v==='所在地'||v==='最寄駅')break;
+   if(company && v===company)continue;
+
+   const hasAmount=/\d|[０-９]|％|%/.test(v);
+   const looksFee=/保証料|利用料|手数料|賃料総額|月額賃料|毎月|月々|口座振替/.test(v);
+   const looksRentNote=/家主負担|貸主負担|フリーレント|鍵交換|クリーニング|違約金/.test(v);
+
+   if(hasAmount && looksFee && !looksRentNote){
+     fee=v;
+     break;
+   }
  }
 
- return {company,fee};
+ return {company:clean(company),fee:clean(fee)};
 }
 
 function parse(){
@@ -743,7 +716,7 @@ function parse(){
    /アプラス|全保連|オリコ|ジェイリース|オセロ|日本セーフティ/.test(x) &&
    !/保証料|初回保証|月額保証/.test(x)
  );
- if(companyLine) r.guarantee_company=clean(companyLine.replace(/\s*利用必須\s*/g,' ').trim());
+ if(companyLine && !r.guarantee_company) r.guarantee_company=clean(companyLine.replace(/\s*利用必須\s*/g,' ').trim());
 
  const guaranteeFeeLine=page1.find(x=>
    /保証会社.*保証料|保証料.*変わります|初回保証料|月額保証料/.test(x) &&
@@ -1197,7 +1170,7 @@ function buildIelovePayload(){
   // 金額以下 + 今回追加した建物前半は MIO完全正 のため、
   // 空欄も必ずキーとして渡し、いえらぶ側の古い値を消せるようにする。
   const upperKeys=[
-    'property_no','property_name','room_no','address','status'
+    'property_no','property_name','room_no','address','status','building_type'
   ];
 
   const authoritativeKeys=[
@@ -1223,7 +1196,7 @@ function buildIelovePayload(){
     'corner_room'
   ];
 
-  const payload={_type:'mioCube-ielove',_version:8};
+  const payload={_type:'mioCube-ielove',_version:14};
   ['school_city','elementary_school','junior_high_school','school_note'].forEach(k=>{
     payload[k]=data[k] == null ? '' : String(data[k]).trim();
   });
