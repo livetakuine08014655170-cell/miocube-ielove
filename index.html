@@ -63,7 +63,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38
 pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 
 const $=id=>document.getElementById(id), out=$('out'), raw=$('raw'), status=$('status');
-let data={}, tokens=[], compactAll='';
+let data={}, tokens=[], compactAll='', equipmentCompact='';
 const clean=s=>String(s??'').replace(/\u3000/g,' ').replace(/\s+/g,' ').trim();
 const c=s=>clean(s).replace(/\s/g,'');
 const findExact=(arr,s,start=0)=>{const q=c(s);for(let i=start;i<arr.length;i++)if(c(arr[i])===q)return i;return -1};
@@ -111,7 +111,7 @@ const man=v=>{const n=Number(onlyNum(v));return n?String(n/10000).replace(/\.0+$
 const equipGroups=[
 ["設備①",["上水道","下水道","浄化槽","都市ガス","プロパンガス","電気","バス・トイレ別室","インターネット対応","光ファイバー","CATV","室内洗濯機置き場","室外洗濯置場","ガスキッチン","IHコンロ","電気コンロ","コンロ2口以上"]],
 ["設備②",["楽器相談","ペット相談","保証人不要"]],
-["設備③",["エレベーター","宅配ボックス","オール電化","バルコニー"]],
+["設備③",["エレベーター","宅配ボックス","オール電化","バルコニー","角部屋"]],
 ["設備④",["フローリング","ロフト","メゾネット"]],
 ["設備⑤",["エアコン","冷房","暖房","家具家電付"]],
 ["設備⑥",["BS","CS","CATV","インターネット無料"]],
@@ -140,7 +140,7 @@ function eq(name){
  if(name==="駐車場") return data.parking_line||"";
  if(name==="建物階数") return data.total_floors||"";
  if(name==="所在階") return data.floor||"";
- return (alias[name]||[name]).some(a=>compactAll.includes(c(a))) ? name : "";
+ return (alias[name]||[name]).some(a=>equipmentCompact.includes(c(a))) ? name : "";
 }
 function seirekiDate(x){
  const t=clean(x);
@@ -211,32 +211,59 @@ function applyConditionValues(r){
 // v53: 賃料備考は「備考」セルを座標で直接読む。
 // 金額欄と違い複数行になるため、同じセル内の文字を上→下、左→右で連結する。
 function rentNoteByPosition(){
- const items=(window.__pageItems&&window.__pageItems[0])||[];
+ // v79: 条件欄の「備考」はラベル自身の高さを基準にして、
+ // 上側の1行＋同じ高さの行＋下側の折返し行をまとめて取得する。
+ // 「保証会社」はこの帳票では備考より上にあるため、境界判定には使わない。
+ const items=(window.__visualItems&&window.__visualItems[0])||[];
  if(!items.length)return '';
 
- const norm=v=>c(clean(v.str||v));
- const labels=items.filter(it=>norm(it)==='備考');
+ const norm=v=>c(clean(v.text??v.str??v));
+ let labels=items.filter(it=>norm(it)==='備考').sort((a,b)=>Number(a.y||0)-Number(b.y||0));
+
+ // PDFによって「備」「考」に分離される場合もあるので、最初の「備」も候補にする。
+ if(!labels.length){
+   labels=items.filter(it=>norm(it)==='備').sort((a,b)=>Number(a.y||0)-Number(b.y||0));
+ }
  if(!labels.length)return '';
 
- // 条件欄の備考はページ上部側。候補ごとに右側の同一行を集め、
- // 「利用必須」や保証会社行は絶対に含めない。
+ // 1ページ目で最初に現れる備考ラベルが条件欄の賃料備考。
  for(const lab of labels){
-   const y=Number(lab.y||0);
-   const x=Number(lab.x||0);
-   const same=items
-     .filter(it=>Math.abs(Number(it.y||0)-y)<=7 && Number(it.x||0)>x+5)
-     .sort((p,q)=>Number(p.x||0)-Number(q.x||0))
-     .map(it=>clean(it.str))
-     .filter(Boolean);
+   const lx=Number(lab.x||0), ly=Number(lab.y||0), lw=Number(lab.w||0);
+   // 条件欄はページ右側。裏面・設備備考など別の「備考」を除外。
+   if(lx < 430) continue;
 
-   const vals=[];
-   for(const v of same){
-     if(c(v).includes('利用必須') || c(v)==='保証会社') break;
-     if(v==='円'||v==='年') continue;
-     vals.push(v);
-   }
-   const out=clean(vals.join(' '));
-   if(out) return out;
+   const left=lx+lw+4;
+   // 実データでは本文1行目がラベル中心より約8px上、折返し末尾が約17px下。
+   // 少し余裕を持たせて全行を拾う。
+   const top=ly-18;
+   const bottom=ly+32;
+
+   const vals=items
+     .filter(it=>{
+       const x=Number(it.x||0), y=Number(it.y||0);
+       return y>=top && y<bottom && x>left;
+     })
+     .sort((a,b)=>{
+       const dy=Number(a.y||0)-Number(b.y||0);
+       return Math.abs(dy)>3 ? dy : Number(a.x||0)-Number(b.x||0);
+     })
+     .map(it=>clean(it.text??it.str))
+     .filter(Boolean)
+     .filter(v=>{
+       const n=norm(v);
+       if(!n)return false;
+       if(['備考','備','考','保証会社','契約期間'].includes(n))return false;
+       if(n.includes('利用必須'))return false;
+       return true;
+     });
+
+   let text=clean(vals.join(''));
+   // v80: 備考の最終折返し行のすぐ下にある所在地まで拾う帳票がある。
+   // 郵便番号が現れた時点で賃料備考セルは終了とみなし、それ以降を切る。
+   // 例: ...フリーレント1ヶ月〒664-0006伊丹市... → ...フリーレント1ヶ月
+   text=text.replace(/〒\s*\d{3}[-－ー]?\d{4}[\s\S]*$/,'').trim();
+   // 賃料備考らしい文章だけ採用。保証会社行などの誤取得を防ぐ。
+   if(text && /[\/／]|違約|クリーニング|保険|フリーレント|退去|入居|契約/.test(text)) return text;
  }
  return '';
 }
@@ -611,7 +638,9 @@ function parse(){
    r.status=clean(parts.join(' '));
  }
  let pi=b.findIndex(x=>x.includes('空有')||x.includes('近隣')||x==='無');if(pi>=0){r.parking=b[pi];let pn=b.slice(pi+1,pi+5).filter(x=>/^[\d,]+$/.test(x));if(pn[0])r.parking_fee=onlyNum(pn[0]);if(pn[1])r.parking_deposit=onlyNum(pn[1])}}
- r.corner_room=compactAll.includes(c('角部屋'))?'角部屋':'';
+ // 角部屋：他の設備と同じ設備判定ロジックに統一
+ // 専用の読み取り経路は持たず、設備文字列に「角部屋」があるかだけで判定する。
+ r.corner_room=(alias['角部屋']||['角部屋']).some(a=>equipmentCompact.includes(c(a)))?'角部屋':'';
 
  // ページ分割
  const pb=t.indexOf('__PAGEBREAK__');
@@ -787,12 +816,8 @@ function parse(){
  }
 
  if(r.rent_notes){
-   r.rent_notes=clean(
-     r.rent_notes
-       .split(/\s+/)
-       .filter(x=>! /^(ヶ月|か月|ケ月|月)$/.test(x))
-       .join(' ')
-   );
+   // v79: 折返しで単独になった「ヶ月」等も賃料備考の一部なので削除しない。
+   r.rent_notes=clean(r.rent_notes);
  }
 
  r.parking_deposit='MIO参照';
@@ -1235,6 +1260,10 @@ function buildIelovePayload(){
   });
   payload.equipment_terms=equipmentTerms;
 
+  // 角部屋は equipment_terms を唯一の判定元にする。
+  // ④建物の corner_room も⑤設備と同じ結果を渡す。
+  payload.corner_room=equipmentTerms.includes('角部屋')?'角部屋':'';
+
   return payload;
 }
 async function copyIelovePayload(){
@@ -1289,6 +1318,19 @@ async function load(file){
    ptxt.push(`【PAGE ${p}】\n`+a.join('\n'));
  }
  compactAll=c(tokens.join(''));
+ // v83: 設備判定はPDF全体ではなく、1ページ目の「●設備」ブロックだけを対象にする。
+ // 最初の●から最後の●までを設備本体とし、その後の設備備考や裏面コメントは判定に使わない。
+ const p1tokens=(window.__pageTokens&&window.__pageTokens[0])||[];
+ let eqFirst=-1, eqLast=-1;
+ for(let i=0;i<p1tokens.length;i++){
+   if(String(p1tokens[i]).includes('●')){
+     if(eqFirst<0) eqFirst=i;
+     eqLast=i;
+   }
+ }
+ equipmentCompact=(eqFirst>=0 && eqLast>=eqFirst)
+   ? c(p1tokens.slice(eqFirst,eqLast+1).join(''))
+   : '';
  raw.textContent=ptxt.join('\n\n');
  data=parse();
  render();
@@ -1297,6 +1339,6 @@ async function load(file){
 }
 $('drop').onclick=()=>$('file').click();$('file').onchange=e=>e.target.files[0]&&load(e.target.files[0]);$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('drag')};$('drop').ondragleave=()=>$('drop').classList.remove('drag');$('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('drag');if(e.dataTransfer.files[0])load(e.dataTransfer.files[0])};
 $('copyIelove').onclick=copyIelovePayload;
-$('clear').onclick=()=>{data={};tokens=[];compactAll='';out.style.display='none';out.innerHTML='';raw.textContent='未読込';status.style.display='none';$('clear').disabled=true;$('copyIelove').disabled=true};
+$('clear').onclick=()=>{data={};tokens=[];compactAll='';equipmentCompact='';out.style.display='none';out.innerHTML='';raw.textContent='未読込';status.style.display='none';$('clear').disabled=true;$('copyIelove').disabled=true};
 </script>
 </body></html>
