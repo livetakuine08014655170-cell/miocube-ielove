@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mioCube → いえらぶ コピペ支援 v70</title>
+<title>mioCube → いえらぶ コピペ支援 v87</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#222;--muted:#6b7280;--gold:#b59b53;--blue:#2563eb;--line:#d8dee8;--ok:#eefaf1}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Yu Gothic",Meiryo,sans-serif}
@@ -45,7 +45,7 @@ details{margin-top:12px}pre{white-space:pre-wrap;background:#101827;color:#e8eef
 </style>
 </head>
 <body>
-<header><h1>mioCube → いえらぶ コピペ支援 v65</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
+<header><h1>mioCube → いえらぶ コピペ支援 v87</h1><p>最新テストPDFの文字列順を基準に抽出</p></header>
 <main>
 <section class="card">
 <div id="drop" class="drop"><strong>mioCube台帳PDFをドロップ</strong><small>またはクリックして選択</small><input id="file" type="file" accept="application/pdf"></div>
@@ -63,7 +63,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38
 pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 
 const $=id=>document.getElementById(id), out=$('out'), raw=$('raw'), status=$('status');
-let data={}, tokens=[], compactAll='', equipmentCompact='';
+let data={}, tokens=[], compactAll='', equipmentCompact='', equipmentContinuation='';
 const clean=s=>String(s??'').replace(/\u3000/g,' ').replace(/\s+/g,' ').trim();
 const c=s=>clean(s).replace(/\s/g,'');
 const findExact=(arr,s,start=0)=>{const q=c(s);for(let i=start;i<arr.length;i++)if(c(arr[i])===q)return i;return -1};
@@ -472,6 +472,33 @@ function guaranteeTwoRows(){
  return {company:clean(company),fee:clean(fee)};
 }
 
+// v87: 交通欄だけを既存の文字位置情報で読む。判別不能時は駅徒歩としない。
+function extractTrafficAccess(){
+ const result={traffic_mode:'不明',station_walk_min:'',bus_min:'',bus_stop:'',bus_stop_walk_min:''};
+ const label=conditionLabelBox('最寄駅'), bottom=conditionLabelBox('間取り');
+ if(!label || !bottom || bottom.y<=label.y) return result;
+ const norm=s=>String(s??'').normalize('NFKC').replace(/\s/g,'');
+ const items=((window.__visualItems&&window.__visualItems[0])||[]).filter(i=>
+   i.x>label.x+label.w && i.y>=label.y-12 && i.y<bottom.y-4 && norm(i.text));
+ const rows=[];
+ items.forEach(i=>{let row=rows.find(r=>Math.abs(r.y-i.y)<=3);if(!row){row={y:i.y,items:[]};rows.push(row);}row.items.push(i);});
+ const lines=rows.sort((a,b)=>a.y-b.y).map(r=>r.items.sort((a,b)=>a.x-b.x).map(i=>norm(i.text)).join(''));
+ const text=lines.join('\n');
+ const bus=/バス|停下車|バス停/.test(text);
+ const walks=[...text.matchAll(/徒歩(\d{1,3})分/g)];
+ const minutes=walks.length===1?walks[0][1]:'';
+ if(bus){
+   result.traffic_mode='バス';
+   result.bus_min=text.match(/バス(\d{1,3})分/)?.[1]||'';
+   const line=lines.find(x=>/停下車/.test(x))||'';
+   result.bus_stop=line.replace(/^.*?バス\d+分/,'').replace(/停下車.*$/,'');
+   result.bus_stop_walk_min=minutes;
+ }else if(minutes && lines.some(x=>/駅/.test(x))){
+   result.traffic_mode='徒歩';result.station_walk_min=minutes;
+ }
+ return result;
+}
+
 function parse(){
  const t=tokens, flat=t.join('\n'), r={};
  r.property_no=(t.find(x=>/^10\d{8}$/.test(x))||'');
@@ -652,7 +679,18 @@ function parse(){
  for(let i=0;i<p1.length;i++) if(String(p1[i]).includes('●')) lastEq=i;
  if(lastEq>=0){
    const notes=p1.slice(lastEq+1).filter(x=>x && !String(x).startsWith('●') && !String(x).startsWith('センチュリー21') && !String(x).startsWith('TEL'));
-   if(notes.length) r.equipment_notes=clean(notes.join(' '));
+   if(notes.length){
+     let note=clean(notes.join(' '));
+     // v86: 設備として補完済みの先頭部分だけを除く。後続の説明文は保持する。
+     if(equipmentContinuation){
+       let prefix='', end=0;
+       while(end<note.length && prefix.length<equipmentContinuation.length){
+         prefix+=c(note[end++]);
+       }
+       if(prefix===equipmentContinuation) note=clean(note.slice(end));
+     }
+     r.equipment_notes=note;
+   }
  }
 
  // 2ページ目 コメント・備考
@@ -835,6 +873,8 @@ function parse(){
    traffic=clean([rail,station].filter(Boolean).join(' '));
  }
  r.traffic_station=traffic;
+ Object.assign(r,extractTrafficAccess());
+ r.walk_min=r.station_walk_min;
  if(r.built_date) r.built_date=seirekiDate(r.built_date);
  const g2=guaranteeTwoRows();
  if(g2.company) r.guarantee_company=g2.company;
@@ -896,6 +936,9 @@ function judgeSchoolDistrict(address){
    ['南口1丁目','宝塚第一','宝梅'],['南口2丁目','宝塚第一','宝梅'],['月見山1丁目','宝塚第一','光ガ丘'],['月見山2丁目','宝塚第一','光ガ丘'],
    ['紅葉ガ丘','宝塚第一','光ガ丘'],['長寿ガ丘','宝塚第一','光ガ丘'],['湯本町','宝塚第一','光ガ丘'],['逆瀬川2丁目','宝塚第一','宝梅'],
    ['宝梅1丁目','宝塚第一','宝梅'],['寿楽荘','宝塚第一','宝梅'],['宝松苑','宝塚第一','宝梅'],
+   // v85: 宝塚市令和8年度公式校区表の御殿山1～3丁目を補完。
+   // https://www.city.takarazuka.hyogo.jp/_res/projects/default_project/_page_/001/047/512/r8gakkoubetu2.pdf
+   ['御殿山1丁目','宝塚','御殿山'],['御殿山2丁目','宝塚','御殿山'],['御殿山3丁目','宝塚','御殿山'],
    ['川面1丁目','宝塚','御殿山'],['川面2丁目','宝塚','御殿山'],['川面3丁目','宝塚','御殿山'],['川面4丁目','宝塚','御殿山'],['川面5丁目','宝塚','御殿山'],['川面6丁目','宝塚','御殿山'],
    ['宮の町','宝塚','御殿山'],['栄町1丁目','宝塚','御殿山'],['栄町2丁目','宝塚','御殿山'],['栄町3丁目','宝塚','御殿山'],['桜ガ丘','宝塚','御殿山'],['桜ヶ丘','宝塚','御殿山'],['旭町1丁目','宝塚','御殿山'],
    ['小浜4丁目','小浜','宝塚'],['小浜5丁目','小浜','宝塚'],['星の荘','小浜','宝塚'],['三笠町','小浜','宝塚'],['寿町','小浜','宝塚'],['泉町','小浜','安倉'],['向月町','小浜','宝塚'],['安倉北1丁目','小浜','安倉'],['安倉西1丁目','小浜','安倉'],['今里町','小浜','宝塚'],
@@ -1221,7 +1264,8 @@ function buildIelovePayload(){
     'corner_room'
   ];
 
-  const payload={_type:'mioCube-ielove',_version:14};
+  const payload={_type:'mioCube-ielove',_version:15};
+  ['traffic_station','traffic_mode','station_walk_min','bus_min','bus_stop','bus_stop_walk_min'].forEach(k=>{payload[k]=String(data[k]??'').trim();});
   ['school_city','elementary_school','junior_high_school','school_note'].forEach(k=>{
     payload[k]=data[k] == null ? '' : String(data[k]).trim();
   });
@@ -1283,7 +1327,7 @@ function render(){
  ['保証会社','guarantee_company'],['保証会社利用料','guarantee_fee'],['保険料','insurance'],['水道料','water_fee'],['町会費','association_fee'],['鍵交換代','key_fee'],
  ['賃料備考','rent_notes',1],['設備備考','equipment_notes',1],['裏面コメント','back_comment',1]
  ]));
- out.appendChild(group('③ 交通',[['最寄駅','traffic_station']]));
+ out.appendChild(group('③ 交通',[['最寄駅','traffic_station'],['交通区分','traffic_mode'],['駅から徒歩（分）','station_walk_min'],['バス乗車（分）','bus_min'],['バス停','bus_stop'],['バス停から徒歩（分）','bus_stop_walk_min']]));
  out.appendChild(group('③-2 公立校区（判定テスト）',[
   ['市','school_city'],['小学校','elementary_school'],['中学校','junior_high_school'],['判定メモ','school_note',1]
  ]));
@@ -1328,9 +1372,29 @@ async function load(file){
      eqLast=i;
    }
  }
+ equipmentContinuation='';
  equipmentCompact=(eqFirst>=0 && eqLast>=eqFirst)
    ? c(p1tokens.slice(eqFirst,eqLast+1).join(''))
    : '';
+ // v84: 最終●項目の未完部分だけを、既存の設備語・別名と照合して補完する。
+ // 続きの先頭が一致する場合だけ採用し、設備備考全体や2ページ目は検索しない。
+ if(eqLast>=0){
+   const tail=c(String(p1tokens[eqLast]).split('●').pop());
+   const terms=[...new Set(equipGroups.flatMap(([,names])=>names.flatMap(name=>alias[name]||[name])).map(c))];
+   const candidates=terms.filter(term=>term.startsWith(tail) && term.length>tail.length);
+   let continuation='', completed='';
+   for(let i=eqLast+1;candidates.length && i<p1tokens.length;i++){
+     continuation+=c(p1tokens[i]);
+     const matched=candidates.filter(term=>continuation.startsWith(term.slice(tail.length)));
+     if(matched.length){
+       completed=matched.sort((a,b)=>b.length-a.length)[0].slice(tail.length);
+       break;
+     }
+     if(!candidates.some(term=>term.slice(tail.length).startsWith(continuation))) break;
+   }
+   equipmentCompact+=completed;
+   equipmentContinuation=completed;
+ }
  raw.textContent=ptxt.join('\n\n');
  data=parse();
  render();
@@ -1339,6 +1403,6 @@ async function load(file){
 }
 $('drop').onclick=()=>$('file').click();$('file').onchange=e=>e.target.files[0]&&load(e.target.files[0]);$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('drag')};$('drop').ondragleave=()=>$('drop').classList.remove('drag');$('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('drag');if(e.dataTransfer.files[0])load(e.dataTransfer.files[0])};
 $('copyIelove').onclick=copyIelovePayload;
-$('clear').onclick=()=>{data={};tokens=[];compactAll='';equipmentCompact='';out.style.display='none';out.innerHTML='';raw.textContent='未読込';status.style.display='none';$('clear').disabled=true;$('copyIelove').disabled=true};
+$('clear').onclick=()=>{data={};tokens=[];compactAll='';equipmentCompact='';equipmentContinuation='';out.style.display='none';out.innerHTML='';raw.textContent='未読込';status.style.display='none';$('clear').disabled=true;$('copyIelove').disabled=true};
 </script>
 </body></html>
