@@ -1129,11 +1129,19 @@ function parse(){
  }
 
  // 裏面の3コメントを、項目名付きで最上部の裏面コメント欄へまとめる。
+ const transactionText=[
+   ['一般媒介',r.mediation],['業者名',r.broker_name],['担当者',r.broker_staff],
+   ['所在地',r.broker_address],['電話',r.broker_tel],['FAX',r.broker_fax],
+   ['メール',r.broker_email],['備考',r.broker_notes]
+ ].filter(([,value])=>clean(value)).map(([label,value])=>`${label}：${clean(value)}`).join('\n');
  r.back_comment=[
    ['物件コメント',r.property_comment],
    ['担当コメント',r.staff_comment],
-   ['契約備考',r.contract_notes]
- ].filter(([,value])=>clean(value)).map(([label,value])=>`${label}　${clean(value)}`).join('\n');
+   ['契約備考',r.contract_notes],
+   ['⑥ 取引情報',transactionText]
+ ].filter(([,value])=>clean(value)).map(([label,value])=>label==='⑥ 取引情報'
+   ? `${label}\n${value}`
+   : `${label}　${clean(value)}`).join('\n');
 
  if(r.rent_notes){
    // v79: 折返しで単独になった「ヶ月」等も賃料備考の一部なので削除しない。
@@ -1989,7 +1997,7 @@ async function copyIelovePayload(){
 function render(){
  out.innerHTML='';
  out.appendChild(group('確認・備考',[
-  ['裏面コメント','back_comment',1],['賃料備考','rent_notes',1],['設備備考','equipment_notes',1]
+  ['裏面コメント','back_comment',1]
  ]));
  out.appendChild(group('① 基本情報',[
   ['建物種別','building_type'],['物件番号','property_no'],['URL取得元','url_source',1]
