@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mioCube → いえらぶ コピペ支援 v107 URL優先テスト</title>
+<title>mioCube → いえらぶ コピペ支援 v108 URL優先テスト</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#222;--muted:#6b7280;--gold:#b59b53;--blue:#2563eb;--line:#d8dee8;--ok:#eefaf1}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Yu Gothic",Meiryo,sans-serif}
@@ -53,7 +53,7 @@ details{margin-top:12px}pre{white-space:pre-wrap;background:#101827;color:#e8eef
 </style>
 </head>
 <body>
-<header><h1>mioCube → いえらぶ コピペ支援 v107 URL優先テスト</h1><p>PDFから物件番号を読み、公開詳細URLを取得。URLにない裏面情報だけPDFで補完します。</p></header>
+<header><h1>mioCube → いえらぶ コピペ支援 v108 URL優先テスト</h1><p>PDFから物件番号を読み、公開詳細URLを取得。URLにない裏面情報だけPDFで補完します。</p></header>
 <main>
 <section class="card">
 <div id="drop" class="drop"><strong>mioCube台帳PDFをドロップ</strong><small>またはクリックして選択</small><input id="file" type="file" accept="application/pdf"></div>
@@ -356,7 +356,7 @@ function startUrlCheck(existingPopup=null){
  if(!/^\d{10}$/.test(no)){alert('PDFから物件番号を取得できていません。');return;}
  pendingUrlCheckNo=no;
  const box=$('urlCheckResult');box.className='url-check-result waiting';box.innerHTML='<b>URL取得待機中...</b><br><span class="note">公開詳細ページから基本情報を自動取得しています。</span>';
- const url=`http://211.129.181.118/r/page.php?GoPage=GoDetail&RP_DetailCds=${encodeURIComponent(no)}`;
+ const url=`http://192.168.1.248/r/page.php?GoPage=GoDetail&RP_DetailCds=${encodeURIComponent(no)}`;
  let popup=existingPopup;
  if(popup && !popup.closed){
    try{popup.location.href=url;}catch(_){popup=null;}
